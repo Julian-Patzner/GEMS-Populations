@@ -13,12 +13,15 @@ Versions are `<GESyLand version>.<conversion revision>`. The files are attached 
 [releases](../../releases); every people and settings file stores its version under the JLD2
 key `"version"`.
 
-| Version | Source | Changes |
-|---|---|---|
-| 3.0 | GESyLand v3 | Hosted on the [GEMS v0.7.1 release](https://github.com/IMMIDD/GEMS/releases/tag/v0.7.1); no `"version"` key |
-| 3.1 | GESyLand v3 | `occupation` is now the main activity; the old values moved to `industry`; `education` added; `AGS`, `lon`, `lat` removed (GEMS takes them from the households); narrower column types |
 
-## People file (3.1)
+## Settings file
+
+Key `"settings"` holds, per setting type, a `table` of its scalar columns and `vectors`, its
+vector columns (`contains` on container settings), each stored flat as `values` and `offsets`:
+setting `i` holds `values[offsets[i]:offsets[i+1]-1]`. Up to 3.1, key `"data"` held one DataFrame
+per setting type with a vector per setting, which JLD2 stores as one dataset each.
+
+## People file
 
 | Column | Type | Meaning |
 |---|---|---|

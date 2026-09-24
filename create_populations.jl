@@ -9,8 +9,8 @@ Zipping calls Info-ZIP `zip` (on PATH, e.g. via MiKTeX), not the Windows compres
 
 using DataFrames, FileIO, JLD2
 
-# written into every people and settings file under "version", next to "data"
-const POP_DATA_VERSION = "3.1"
+# written into every people and settings file under "version", next to its content
+const POP_DATA_VERSION = "3.2"
 
 """
     isced_level(code)
@@ -299,6 +299,11 @@ function create_people_settings(raw_people, buildings)
     workplace_symbols = [:Office, :Department, :Workplace, :WorkplaceSite]
     add_buildings!(people, workplaces, workplace_symbols, "office", buildings, stng_dict; max_sublevels = 4)
 
+    # GEMS takes the members from the people file and has no field for these; `individuals` was
+    # only needed above, to give each person their school class and office
+    select!(stng_dict[:SchoolClass], Not(:individuals, :bid, :workhome, :inroom))
+    select!(stng_dict[:Office], Not(:individuals, :bid))
+
     # AGS, lon and lat live on the households; GEMS never reads them per individual
     select!(people, Not(:OCCUPATION, :OCC_TYPE, :AGS, :lon, :lat))
 
@@ -311,6 +316,39 @@ function create_people_settings(raw_people, buildings)
     return people, stng_dict
 end
 
+
+const FlatColumn = NamedTuple{(:offsets, :values), Tuple{Vector{Int32}, Vector{Int32}}}
+
+"""
+    flatten_settings(stng_dict)
+
+Returns the settings in the file layout of data version 3.2: per setting type, a `table` of its
+scalar columns and its vector columns (`contains`) under `vectors`, each stored flat as `values`
+and `offsets`, setting `i` holding `values[offsets[i]:offsets[i+1]-1]`. JLD2 stores a column of
+vectors as one dataset per setting, which makes reading it slow and memory-hungry.
+"""
+function flatten_settings(stng_dict)
+    flat = Dict{Symbol, NamedTuple{(:table, :vectors), Tuple{DataFrame, Dict{String, FlatColumn}}}}()
+    for (type, df) in stng_dict
+        vcols = [c for c in names(df) if eltype(df[!, c]) <: AbstractVector]
+        vectors = Dict{String, FlatColumn}()
+        for c in vcols
+            v = df[!, c]
+            offsets = Vector{Int32}(undef, length(v) + 1)
+            offsets[1] = 1
+            for i in eachindex(v)
+                offsets[i + 1] = offsets[i] + length(v[i])
+            end
+            values = Vector{Int32}(undef, offsets[end] - 1)
+            for i in eachindex(v)
+                copyto!(values, offsets[i], v[i], 1, length(v[i]))
+            end
+            vectors[c] = (offsets = offsets, values = values)
+        end
+        flat[type] = (table = select(df, Not(vcols)), vectors = vectors)
+    end
+    return flat
+end
 
 """
     create_files(in_path::String, out_path::String, filter_dict::Dict; fltr::Function = filter_bundesland, zp = true)
@@ -336,7 +374,7 @@ function create_files(in_path::String, out_path::String, filter_dict::Dict; fltr
         people_path = joinpath(out_path, "people_$key.jld2")
 
         # Save the settings and the people, each with the data version
-        save(setting_path, Dict("data" => stng_dict, "version" => POP_DATA_VERSION))
+        save(setting_path, Dict("settings" => flatten_settings(stng_dict), "version" => POP_DATA_VERSION))
         save(people_path, Dict("data" => people_out, "version" => POP_DATA_VERSION))
 
         if zp
